@@ -1,6 +1,6 @@
 import jwt, { JwtPayload } from "jsonwebtoken";
 import 'dotenv/config'
-import db from "../db";
+import PGInterface from "../PGInterface";
 
 declare module "jsonwebtoken" {
     export interface JwtPayload {
@@ -20,20 +20,39 @@ class TokenService {
         }
     }
 
-    async saveToken(userId: number, refreshToken: string) {
-        const tokenData = await db.query('SELECT userid FROM tokens WHERE userid=$1', [userId]);
-        if (tokenData.rowCount && tokenData.rowCount > 0) {
-            return await db.query('UPDATE tokens set refreshtoken=$1 WHERE userid=$2', [refreshToken, userId])
+    async saveToken(userId: number, refreshToken: string) { //Проверено
+        const tokenData = await PGInterface.select({
+            table: 'tokens',
+            fields: ['userid'],
+            condition: `userid=${userId}`
+        })
+        if (tokenData.length > 0) {
+            return await PGInterface.update({
+                table: 'tokens',
+                set: [`refreshtoken='${refreshToken}'`],
+                condition: `userid=${userId}`
+            })
         }
-        return await db.query('INSERT INTO tokens (userid, refreshtoken) VALUES ($1, $2)', [userId, refreshToken])
+        return await PGInterface.insert({ 
+            table: 'tokens',
+            fields: ['userid', 'refreshtoken'],
+            values: [userId, `'${refreshToken}'`]
+        })
     }
 
-    async removeToken(refreshToken: string) {
-        return await db.query('DELETE FROM tokens WHERE refreshtoken=$1', [refreshToken])
+    async removeToken(refreshToken: string) { //Проверено
+        return await PGInterface.delete({ 
+            table: 'tokens',
+            condition: `refreshtoken='${refreshToken}'`
+        })
     }
 
-    async findToken(refreshToken: string) {
-        return await db.query('SELECT * FROM tokens WHERE refreshtoken=$1', [refreshToken])
+    async findToken(refreshToken: string) { //Проверено
+        return await PGInterface.select({
+            table: 'tokens',
+            fields: ['*'],
+            condition: `refreshtoken='${refreshToken}'`
+        })
     }
 
     validateAccessToken(token: string) {

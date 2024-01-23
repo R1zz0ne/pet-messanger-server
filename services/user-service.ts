@@ -5,55 +5,76 @@ import UserDto from "../dtos/user-dto";
 import { v4 } from "uuid";
 import ApiError from "../execptions/api-error";
 import { JwtPayload } from "jsonwebtoken";
-import db from "../db";
+import PGInterface from "../PGInterface";
 
 class UserService {
-    async registration(email: string, password: string) { //переписано, не проверено
-        const candidate = await db.query('SELECT * FROM users WHERE email=$1', [email]);
-        if (candidate.rowCount && candidate.rowCount > 0) {
+    async registration(email: string, password: string) { //Проверено
+        const candidate = await PGInterface.select({
+            table: 'users',
+            fields: ['*'],
+            condition: `email='${email}'`
+        })
+        if (candidate.length > 0) {
             throw ApiError.BadRequest(`Пользователь с почтовым адресом ${email} уже существует`)
         }
         const hashPassword = await bcrypt.hash(password, 3);
         const activationLink = v4();
-
-        const user = await db.query('INSERT INTO users (email, password, activationlink) VALUES ($1, $2, $3) RETURNING *', [email, hashPassword, activationLink])
+        const user = await PGInterface.insert({
+            table: 'users',
+            fields: ['email', 'password', 'activationlink'],
+            values: [`'${email}'`, `'${hashPassword}'`, `'${activationLink}'`],
+            returns: ['*']
+        })
         await mailService.sendActivationMail(email, `${process.env.API_URL!}/api/v1/activate/${activationLink}`);
-
-        const userDto = new UserDto(user.rows[0]);
+        console.log(user);
+        
+        const userDto = new UserDto(user[0]);
         const tokens = tokenService.generateTokens({ ...userDto });
         await tokenService.saveToken(userDto.id, tokens.refreshToken);
         return { ...tokens, user: userDto }
     }
 
-    async activate(activationlink: string) { //переписано, не протестирована
-        const user = await db.query('SELECT * FROM users WHERE activationlink=$1', [activationlink])
-        if (user.rowCount === 0) {
+    async activate(activationlink: string) { //Проверено
+        const user = await PGInterface.select({
+            table: 'users',
+            fields: ['*'],
+            condition: `activationlink='${activationlink}'`
+        })
+        if (user.length === 0) {
             throw ApiError.BadRequest('Некорректная ссылка активации')
         }
-        await db.query('UPDATE users set isactivated=true WHERE id=$1', [user.rows[0].id])
+        await PGInterface.update({
+            table: 'users',
+            set: ['isactivated=true'],
+            condition: `id=${user[0].id}`
+        })
     }
 
-    async login(email: string, password: string) { //переписано, не протестировано
-        const user = await db.query('SELECT * FROM users WHERE email=$1', [email]);
-        if (user.rowCount === 0) {
+    async login(email: string, password: string) { //Проверено
+        const user = await PGInterface.select({
+            table: 'users',
+            fields: ['*'],
+            condition: `email='${email}'`
+        })
+        if (user.length === 0) {
             throw ApiError.BadRequest('ПОльзователь с таким email не найден')
         }
-        const isPassEquals = await bcrypt.compare(password, user.rows[0].password);
+        const isPassEquals = await bcrypt.compare(password, user[0].password);
         if (!isPassEquals) {
             throw ApiError.BadRequest('Неверный пароль')
         }
-        const userDto = new UserDto(user.rows[0]);
+        const userDto = new UserDto(user[0]);
         const tokens = tokenService.generateTokens({ ...userDto });
         await tokenService.saveToken(userDto.id, tokens.refreshToken);
         return { ...tokens, user: userDto }
     }
 
-    async logout(refreshToken: string) {
+    async logout(refreshToken: string) { //Проверено
         const token = await tokenService.removeToken(refreshToken);
         return token;
     }
 
-    async refresh(refreshToken: string) {
+    async refresh(refreshToken: string) { //Проверено
         if (!refreshToken) {
             throw ApiError.UnauthorizedError();
         }
@@ -62,22 +83,33 @@ class UserService {
         if (!userData || !tokenFromDb) {
             throw ApiError.UnauthorizedError();
         }
-        const user = await db.query('SELECT * FROM users WHERE id=$1', [userData.id])
-        const userDto = new UserDto(user.rows[0]);
+        const user = await PGInterface.select({
+            table: 'users',
+            fields: ['*'],
+            condition: `id=${userData.id}`
+        })
+        const userDto = new UserDto(user[0]);
         const tokens = tokenService.generateTokens({ ...userDto });
         await tokenService.saveToken(userDto.id, tokens.refreshToken);
         return { ...tokens, user: userDto }
     }
 
-    async getAllUsers() {
-        const users = await db.query('SELECT * FROM users')
-        return users.rows;
+    async getAllUsers() { //TODO: этот метод вроде не используется, убрать, если не потребуется
+        const users = await PGInterface.select({
+            table: 'users',
+            fields: ['*']
+        })
+        return users;
     }
 
-    async getUsers(query: string) {
-        const queryString: string = `%${query}%`
-        const users = await db.query('SELECT id,email FROM users WHERE email LIKE $1', [queryString]);
-        return users.rows
+    async getUsers(filter: string) { //Проверено
+        const filteryString: string = `%${filter}%`
+        const users = await PGInterface.select({
+            table: 'users',
+            fields: ['id', 'email'],
+            condition: `email LIKE '${filteryString}'`
+        })
+        return users
     }
 }
 

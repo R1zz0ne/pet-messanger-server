@@ -1,5 +1,4 @@
-import db from '../db';
-import { QueryResult } from 'pg';
+import PGInterface from '../PGInterface';
 
 interface Dialogs {
     id: number,
@@ -7,40 +6,75 @@ interface Dialogs {
     email: string
 }
 
+
 class DialogService {
-    async getDialogs(id: number) {
-        const dialogsId: QueryResult<Pick<Dialogs, 'id'>> = await db.query(`SELECT id, name FROM dialog
-            INNER JOIN link_dialog_user
-            ON dialog.id = link_dialog_user.dialogid
-            WHERE userid = $1`, [id]);
+    async getDialogs(id: number) { //Проверено
+        const dialogsId: Pick<Dialogs, 'id'>[] = await PGInterface.select({
+            fields: ['id', 'name'],
+            table: 'dialog',
+            join: [{
+                type: 'INNER JOIN',
+                table: 'link_dialog_user',
+                firstId: 'dialog.id',
+                secondId: 'link_dialog_user.dialogid'
+            }],
+            condition: `userid = ${id}`
+        })
+        if (dialogsId.length === 0) {
+            return [];
+        }
         const dialogsIdArray: number[] = [];
-        dialogsId.rows.forEach((el) => {
+        dialogsId.forEach((el) => {
             dialogsIdArray.push(el.id);
         });
-        const dialogs: QueryResult<Dialogs> = await db.query(`SELECT dialog.id, userid, email FROM dialog
-        INNER JOIN link_dialog_user
-        ON dialog.id = link_dialog_user.dialogid
-        INNER JOIN users
-        ON link_dialog_user.userid = users.id
-        WHERE dialog.id IN (${dialogsIdArray.join(',')}) AND userid !=$1`, [id])
-        return dialogs.rows;
+        const dialogs: Dialogs[] = await PGInterface.select({
+            fields: ['dialog.id', 'userid', 'email'],
+            table: 'dialog',
+            join: [{
+                type: 'INNER JOIN',
+                table: 'link_dialog_user',
+                firstId: 'dialog.id',
+                secondId: 'link_dialog_user.dialogid'
+            }, {
+                type: 'INNER JOIN',
+                table: 'users',
+                firstId: 'link_dialog_user.userid',
+                secondId: 'users.id'
+            }],
+            condition: `dialog.id IN (${dialogsIdArray.join(',')}) AND userid != ${id}`
+        })
+        return dialogs;
     }
 
-    async setDialog(users: number[]) {
-        const dialog = await db.query(`INSERT INTO dialog (name) VALUES ('notused') RETURNING id`);
-        if (dialog.rows.length > 0) {
+    async setDialog(users: number[]) { //Проверено
+        const dialog: Pick<Dialogs, 'id'>[] = await PGInterface.insert({
+            table: 'dialog',
+            fields: ['name'],
+            values: [`'notused'`],
+            returns: ['id']
+        })
+        if (dialog.length > 0) {
             const userLength = users.length;
             for (let i = 0; i < userLength; i++) {
-                const dialogLink = await db.query(`INSERT INTO link_dialog_user (dialogid, userid) 
-                VALUES ($1, $2) RETURNING userid`, [dialog.rows[0].id, users[i]]);
-                if (dialogLink.rows.length <= 0) {
-                    await db.query(`DELETE FROM link_dialog_user
-                    WHERE dialogid=$1`, [dialog.rows[0].id]);
-                    await db.query(`DELETE FROM dialog WHERE id=$1`, [dialog.rows[0].id]);
+                const dialogLink: Pick<Dialogs, 'userid'>[] = await PGInterface.insert({
+                    table: 'link_dialog_user',
+                    fields: ['dialogid', 'userid'],
+                    values: [dialog[0].id, users[i]],
+                    returns: ['userid']
+                })
+                if (dialogLink.length = 0) {
+                    await PGInterface.delete({
+                        table: 'link_dialog_user',
+                        condition: `dialogid=${dialog[0].id}`
+                    })
+                    await PGInterface.delete({
+                        table: 'dialog',
+                        condition: `id=${dialog[0].id}`
+                    })
                     throw new Error();
                 }
             }
-            return dialog.rows[0];
+            return dialog[0];
         } else {
             throw new Error();
         }

@@ -1,20 +1,31 @@
-import { QueryResult } from "pg";
-import db from "../db";
+import PGInterface from "../PGInterface";
+
+interface IMessage {
+    id: number,
+    userid: number,
+    email: string,
+    message: string
+}
 
 class MessageService {
-    async getMessages(idDialog: string) {
-        const messages: QueryResult = await db.query(`SELECT sender AS userId, email, message FROM messages
-        INNER JOIN users
-        ON users.id = messages.sender
-        WHERE dialogid = $1`, [idDialog])
-        return messages.rows;
+    async getMessages(idDialog: string) { //Проверено
+        const messages: IMessage[] = await PGInterface.customQuery(`SELECT * FROM (
+            SELECT messages.id AS id, message, email, sender AS userid
+            FROM messages 
+            INNER JOIN users ON users.id = messages.sender
+            WHERE dialogid = ${idDialog}
+            ORDER BY id DESC
+            LIMIT 100
+            ) t ORDER BY id ASC`)
+        return messages;
     }
 
-    async setMessage(idDialog: string, idUser: number, message: string) {
-        const messageResponse = await db.query(`INSERT INTO messages (dialogid, sender, message) 
-        VALUES ($1, $2, $3)`, [idDialog, idUser, message]);
-        console.log(messageResponse);
-
+    async setMessage(idDialog: string, idUser: number, message: string) { //Проверено
+        const messageResponse = await PGInterface.insert({
+            table: 'messages',
+            fields: ['dialogid', 'sender', 'message'],
+            values: [idDialog, idUser, `'${message}'`]
+        })
     }
 }
 
