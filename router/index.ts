@@ -13,11 +13,14 @@ router.post('/login', userController.login);
 router.post('/logout', userController.logout);
 router.get('/activate/:link', userController.activate);
 router.get('/refresh', userController.refresh);
-router.get('/allusers', authMiddleware, userController.getAllUsers); //не используется
-router.get('/users', authMiddleware, userController.getUsers);
-router.get('/dialogs', authMiddleware, dialogController.getDialogs);
-router.post('/dialogs', authMiddleware, dialogController.setDialog);
-router.get('/dialogs/:id/messages', authMiddleware, dialogController.getMessages);
-router.post('/dialogs/:id/messages', authMiddleware, dialogController.setMessage);
+/*То что ниже должно работать через WS, либо через комбинированную систему, 
+когда при первоначальной загрузке получаем информацию через http, 
+а потом получаем информацию через WS*/
+// router.get('/allusers', authMiddleware, userController.getAllUsers); //не используется
+// router.get('/users', authMiddleware, userController.getUsers);
+// router.get('/dialogs', authMiddleware, dialogController.getDialogs);
+// router.post('/dialogs', authMiddleware, dialogController.setDialog);
+// router.get('/dialogs/:id/messages', authMiddleware, dialogController.getMessages);
+// router.post('/dialogs/:id/messages', authMiddleware, dialogController.setMessage);
 
 export default router;

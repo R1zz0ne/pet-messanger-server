@@ -1,14 +1,25 @@
-import bcrypt from "bcrypt";
-import mailService from "./mail-service";
-import tokenService from "./token-service";
-import UserDto from "../dtos/user-dto";
-import { v4 } from "uuid";
-import ApiError from "../execptions/api-error";
-import { JwtPayload } from "jsonwebtoken";
+import bcrypt from 'bcrypt';
 import PGInterface from "../PGInterface";
+import UserDto from '../dtos/user-dto';
+import tokenService from '../services/token-service';
+import ApiError from '../execptions/api-error';
+import { v4 } from 'uuid';
+import mailService from '../services/mail-service';
+import { JwtPayload } from 'jsonwebtoken';
 
-class UserService {
-    async registration(email: string, password: string) { //Проверено
+interface IAuthData {
+    email: string,
+    password: string
+}
+
+interface ILoginReturn {
+    accessToken: string,
+    refreshToken: string,
+    user: UserDto
+}
+
+class WSUserController {
+    async registration({ email, password }: IAuthData): Promise<ILoginReturn> {
         const candidate = await PGInterface.select({
             table: 'users',
             fields: ['*'],
@@ -18,44 +29,28 @@ class UserService {
             throw ApiError.BadRequest(`Пользователь с почтовым адресом ${email} уже существует`)
         }
         const hashPassword = await bcrypt.hash(password, 3);
-        const activationLink = v4();
+        const activationLink = v4()
         const user = await PGInterface.insert({
             table: 'users',
             fields: ['email', 'password', 'activationlink'],
             values: [`'${email}'`, `'${hashPassword}'`, `'${activationLink}'`],
             returns: ['*']
         })
-        await mailService.sendActivationMail(email, `${process.env.API_URL!}/api/v1/activate/${activationLink}`);        
+        await mailService.sendActivationMail(email, `${process.env.API_URL!}/api/v1/activate/${activationLink}`);
         const userDto = new UserDto(user[0]);
         const tokens = tokenService.generateTokens({ ...userDto });
         await tokenService.saveToken(userDto.id, tokens.refreshToken);
         return { ...tokens, user: userDto }
     }
 
-    async activate(activationlink: string) { //Проверено
-        const user = await PGInterface.select({
-            table: 'users',
-            fields: ['*'],
-            condition: `activationlink='${activationlink}'`
-        })
-        if (user.length === 0) {
-            throw ApiError.BadRequest('Некорректная ссылка активации')
-        }
-        await PGInterface.update({
-            table: 'users',
-            set: ['isactivated=true'],
-            condition: `id=${user[0].id}`
-        })
-    }
-
-    async login(email: string, password: string) { //Проверено
+    async login({ email, password }: IAuthData, socketid: string): Promise<ILoginReturn> {
         const user = await PGInterface.select({
             table: 'users',
             fields: ['*'],
             condition: `email='${email}'`
         })
         if (user.length === 0) {
-            throw ApiError.BadRequest('ПОльзователь с таким email не найден')
+            throw ApiError.BadRequest('Пользователь с таким email не найден')
         }
         const isPassEquals = await bcrypt.compare(password, user[0].password);
         if (!isPassEquals) {
@@ -64,15 +59,29 @@ class UserService {
         const userDto = new UserDto(user[0]);
         const tokens = tokenService.generateTokens({ ...userDto });
         await tokenService.saveToken(userDto.id, tokens.refreshToken);
+        await PGInterface.update({
+            table: 'users',
+            set: [`socketid='${socketid}'`],
+            condition: `id=${userDto.id}`
+        })
         return { ...tokens, user: userDto }
     }
 
-    async logout(refreshToken: string) { //Проверено
+    async logout(refreshToken: string, socketid: string) {
         const token = await tokenService.removeToken(refreshToken);
-        return token;
+        await PGInterface.update({
+            table: 'users',
+            set: [`socketid=''`],
+            condition: `socketid='${socketid}'`
+        })
+        return token
     }
 
-    async refresh(refreshToken: string) { //Проверено
+    async activate() {
+        //Пока что не знаю как сделать в монолите
+    }
+
+    async refresh(refreshToken: string, socketid: string) {
         if (!refreshToken) {
             throw ApiError.UnauthorizedError();
         }
@@ -89,18 +98,15 @@ class UserService {
         const userDto = new UserDto(user[0]);
         const tokens = tokenService.generateTokens({ ...userDto });
         await tokenService.saveToken(userDto.id, tokens.refreshToken);
+        await PGInterface.update({
+            table: 'users',
+            set: [`socketid='${socketid}'`],
+            condition: `id=${userDto.id}`
+        })
         return { ...tokens, user: userDto }
     }
 
-    async getAllUsers() { //TODO: этот метод вроде не используется, убрать, если не потребуется
-        const users = await PGInterface.select({
-            table: 'users',
-            fields: ['*']
-        })
-        return users;
-    }
-
-    async getUsers(filter: string) { //Проверено
+    async getUsers(filter: string) {
         const filteryString: string = `%${filter}%`
         const users = await PGInterface.select({
             table: 'users',
@@ -111,4 +117,4 @@ class UserService {
     }
 }
 
-export default new UserService();
+export default new WSUserController();
